@@ -1,0 +1,7 @@
+{
+    "dependencies": [
+        "nlohmann-json",
+        "clipper2",
+        "opencascade"
+    ]
+}
