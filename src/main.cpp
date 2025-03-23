@@ -95,9 +95,10 @@ struct Footprint {
         // solder mask margin
         double maskMargin = 0;
 
-        // layer
+        // layers
         bool back = false;
-
+        bool mask = true;
+        bool paste = true;
 
         bool vertical = false;
 
@@ -146,15 +147,16 @@ struct Footprint {
     // line or polyline
     struct Line {
         std::string layer;
-        double width;
+        double width = 0.1;
         std::vector<double2> points;
     };
 
     struct Circle {
         std::string layer;
-        double width;
-        double2 center;
-        double radius;
+        double width = 0.1;
+        bool fill = false;
+        double2 center = {0, 0};
+        double radius = 0.5;
     };
 
 
@@ -301,8 +303,10 @@ void readPad(json &j, Footprint::Pad &pad) {
     // solder mask margin
     read(j, "maskMargin", pad.maskMargin);
 
-    // back side
+    // layers
     read(j, "back", pad.back);
+    read(j, "mask", pad.mask);
+    read(j, "paste", pad.paste);
 
     // pitch
     read(j, "pitch", pad.pitch);
@@ -367,13 +371,17 @@ void readCircle(json &j, Footprint::Circle &circle) {
     // width
     read(j, "width", circle.width);
 
+    // fill
+    read(j, "fill", circle.fill);
+
     // center
     read(j, "center", circle.center);
 
-    // diameter
+    // diameter or radius
     double diameter;
     read(j, "diameter", diameter);
     circle.radius = diameter * 0.5;
+    read(j, "radius", circle.radius);
 }
 
 
@@ -493,7 +501,9 @@ void readJson(const fs::path &path, std::map<std::string, Footprint> &footprints
 }
 
 // define a pad
-void writePad(std::ostream &s, std::string_view name, double2 position, double2 size, double shape, double2 drillSize, double2 padOffset, double clearance, double maskMargin, bool back) {
+void writePad(std::ostream &s, std::string_view name, double2 position, double2 size, double2 offset, double shape,
+    double2 drillSize, const Footprint::Pad &pad)
+{
     bool hasPad = size.positive();
     bool hasDrill = drillSize.positive();
 
@@ -531,20 +541,40 @@ void writePad(std::ostream &s, std::string_view name, double2 position, double2 
             s << drillSize.x;
         else
             s << "oval " << drillSize;
-        if (!padOffset.zero())
-            s << " (offset " << padOffset << ")";
+        if (!offset.zero())
+            s << " (offset " << offset << ")";
         s << ")";
     }
 
     // margins
-    if (clearance > 0)
-        s << " (clearance " << clearance << ")";
-    if (maskMargin != 0)
-        s << " (solder_mask_margin " << maskMargin << ")";
+    if (pad.clearance > 0)
+        s << " (clearance " << pad.clearance << ")";
+    if (pad.maskMargin != 0)
+        s << " (solder_mask_margin " << pad.maskMargin << ")";
 
     // layers
-    const char *layers = hasDrill ? "*.Cu *.Mask" : (back ? "B.Cu B.Mask B.Paste" : "F.Cu F.Mask F.Paste");
-    s << " (layers " << layers << ")";
+    s << " (layers";
+    if (hasDrill) {
+        // front and back
+        s << " \"*.Cu\"";
+        if (pad.mask)
+            s << " \"*.Mask\"";
+    } else if (!pad.back) {
+        // front
+        s << " \"F.Cu\"";
+        if (pad.mask)
+            s << " \"F.Mask\"";
+        if (pad.paste)
+            s << " \"F.Paste\"";
+    } else {
+        // back
+        s << " \"B.Cu\"";
+        if (pad.mask)
+            s << " \"B.Mask\"";
+        if (pad.paste)
+            s << " \"B.Paste\"";
+    }
+    s << ")";
     if (hasPad && hasDrill)
         s << " (remove_unused_layers) (keep_end_layers)";
 
@@ -596,7 +626,7 @@ void writeCircle(std::ostream &s, double2 position, const Footprint::Circle &cir
         " (center " << p1 << ")"
         " (end " << p2 << ")"
         " (stroke (width " << circle.width << ") (type default))"
-        " (fill none)"
+        " (fill " << (circle.fill ? "solid" : "none") << ")"
         " (layer \"" << circle.layer << "\")"
         ")" << std::endl;
 }
@@ -806,7 +836,7 @@ void writeSingle(std::ofstream &s, const Footprint &footprint, const Footprint::
         }
 
         if (pad.exists(n)) {
-            writePad(s, pad.getName(n), position, pad.size, pad.shape, pad.drillSize, padOffset, pad.clearance, pad.maskMargin, pad.back);
+            writePad(s, pad.getName(n), position, pad.size, padOffset, pad.shape, pad.drillSize, pad);
             addSilkscreenPad(clips, position, pad.size, pad.drillSize);
         }
         position += pitch;
@@ -890,13 +920,13 @@ void writeDual(std::ofstream &s, const Footprint &footprint, const Footprint::Pa
 
         // first row
         if (pad.exists(n1)) {
-            writePad(s, pad.getName(n1), position1, pad.size, pad.shape, pad.drillSize, padOffset1, pad.clearance, pad.maskMargin, pad.back);
+            writePad(s, pad.getName(n1), position1, pad.size, padOffset1, pad.shape, pad.drillSize, pad);
             addSilkscreenPad(clips, position1, pad.size, pad.drillSize);
         }
 
         // second row
         if (pad.exists(n2)) {
-            writePad(s, pad.getName(n2), position2, pad.size, pad.shape, pad.drillSize, padOffset2, pad.clearance, pad.maskMargin, pad.back);
+            writePad(s, pad.getName(n2), position2, pad.size, padOffset2, pad.shape, pad.drillSize, pad);
             addSilkscreenPad(clips, position2, pad.size, pad.drillSize);
         }
 
@@ -962,19 +992,19 @@ void writeQuad(std::ofstream &s, double2 globalPosition, const Footprint::Pad &p
         int n4 = count * 3 + index;
 
         if (pad.exists(n1)) {
-            writePad(s, pad.getName(n1), position1, pad.size, pad.shape, pad.drillSize, padOffset1, pad.clearance, pad.maskMargin, pad.back);
+            writePad(s, pad.getName(n1), position1, pad.size, padOffset1, pad.shape, pad.drillSize, pad);
             addSilkscreenPad(clips, position1, pad.size, pad.drillSize);
         }
         if (pad.exists(n2)) {
-            writePad(s, pad.getName(n2), position2, padSize24, pad.shape, swap(pad.drillSize), padOffset2, pad.clearance, pad.maskMargin, pad.back);
+            writePad(s, pad.getName(n2), position2, padSize24, padOffset2, pad.shape, swap(pad.drillSize), pad);
             addSilkscreenPad(clips, position2, padSize24, pad.drillSize);
         }
         if (pad.exists(n3)) {
-            writePad(s, pad.getName(n3), position3, pad.size, pad.shape, pad.drillSize, padOffset3, pad.clearance, pad.maskMargin, pad.back);
+            writePad(s, pad.getName(n3), position3, pad.size, padOffset3, pad.shape, pad.drillSize, pad);
             addSilkscreenPad(clips, position3, pad.size, pad.drillSize);
         }
         if (pad.exists(n4)) {
-            writePad(s, pad.getName(n4), position4, padSize24, pad.shape, swap(pad.drillSize), padOffset4, pad.clearance, pad.maskMargin, pad.back);
+            writePad(s, pad.getName(n4), position4, padSize24, padOffset4, pad.shape, swap(pad.drillSize), pad);
             addSilkscreenPad(clips, position4, padSize24, pad.drillSize);
         }
 
@@ -990,6 +1020,15 @@ void writeQuad(std::ofstream &s, double2 globalPosition, const Footprint::Pad &p
 // generate grid (e.g. BGA)
 void writeGrid(std::ofstream &s, double2 globalPosition, const Footprint::Pad &pad, clipper2::Paths64 &clips) {
 
+}
+
+bool allowSoldermaskBridges(const Footprint &footprint) {
+    // return true if there is a circle on the solder mask layer
+    for (auto &circle : footprint.circles) {
+        if (circle.layer == "F.Mask" || circle.layer == "B.Mask")
+            return true;
+    }
+    return false;
 }
 
 bool generateFootprint(const fs::path &path, const std::string &name, const Footprint &footprint) {
@@ -1021,12 +1060,28 @@ bool generateFootprint(const fs::path &path, const std::string &name, const Foot
 
     // header
     s << "(module " << name << " (layer F.Cu) (tedit 5EC043C1)" << std::endl;
+
+    // description
     s << "  (descr \"" << footprint.description << "\")" << std::endl;
-    s << "  (attr " << (footprint.getType() == Footprint::Type::THROUGH_HOLE ? "through_hole" : "smd") << ')' << std::endl;
+
+    // attributes
+    s << "  (attr";
+    s << (footprint.getType() == Footprint::Type::THROUGH_HOLE ? " through_hole" : " smd");
+    if (allowSoldermaskBridges(footprint))
+        s << " allow_soldermask_bridges";
+    s  << ')' << std::endl;
+
+    // 3D model
     if (haveBody)
         s << "  (model \"" << name << ".wrl\" (at (xyz 0 0 0)) (scale (xyz 1 1 1)) (rotate (xyz 0 0 0)))" << std::endl;
+
+    // reference
     s << "  (fp_text reference REF** (at " << refPosition << ") (layer F.SilkS) (effects (font (size 1 1) (thickness 0.15))))" << std::endl;
+
+    // value
     s << "  (fp_text value " << name << " (at " << valuePosition << ") (layer F.Fab) (effects (font (size 1 1) (thickness 0.15))))" << std::endl;
+
+    // margins
     s << "  (solder_mask_margin " << maskMargin << ")" << std::endl;
     s << "  (solder_paste_margin " << pasteMargin << ")" << std::endl;
 
