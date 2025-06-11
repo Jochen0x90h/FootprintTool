@@ -97,6 +97,7 @@ struct Footprint {
 
         // layers
         bool back = false;
+        bool jumper = false;
         bool mask = true;
         bool paste = true;
 
@@ -305,6 +306,12 @@ void readPad(json &j, Footprint::Pad &pad) {
 
     // layers
     read(j, "back", pad.back);
+    read(j, "jumper", pad.jumper);
+    if (pad.jumper) {
+        // set defaults for jumper
+        pad.mask = false;
+        pad.paste = false;
+    }
     read(j, "mask", pad.mask);
     read(j, "paste", pad.paste);
 
@@ -368,11 +375,16 @@ void readCircle(json &j, Footprint::Circle &circle) {
     // layer
     read(j, "layer", circle.layer);
 
+    // fill
+    read(j, "fill", circle.fill);
+    if (circle.fill) {
+        // set default width for filled circle
+        circle.width = 0;
+    }
+
     // width
     read(j, "width", circle.width);
 
-    // fill
-    read(j, "fill", circle.fill);
 
     // center
     read(j, "center", circle.center);
@@ -1023,9 +1035,9 @@ void writeGrid(std::ofstream &s, double2 globalPosition, const Footprint::Pad &p
 }
 
 bool allowSoldermaskBridges(const Footprint &footprint) {
-    // return true if there is a circle on the solder mask layer
-    for (auto &circle : footprint.circles) {
-        if (circle.layer == "F.Mask" || circle.layer == "B.Mask")
+    // return true if pads are a jumper
+    for (auto &pad : footprint.pads) {
+        if (pad.jumper)
             return true;
     }
     return false;
