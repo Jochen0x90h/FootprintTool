@@ -14,7 +14,7 @@ class Project(ConanFile):
     exports_sources = "conanfile.py", "CMakeLists.txt", "src/*"
     requires = [
         "nlohmann_json/3.12.0",
-        "clipper2/1.4.0"
+        "clipper2/1.5.3"
     ]
 
     keep_imports = True
