@@ -1,0 +1,3 @@
+# profile platform config generator
+debug native Debug "Visual Studio 17 2022"
+default native Release "Visual Studio 17 2022"
