@@ -1,8 +1,10 @@
-# Configure the project for use in an IDE that supports CMakeUserPresets.json
+# Calls "conan install" for all presets in cpresets.txt
+# Also creates a CMakeUserPresets.json which is supported by IDEs such as VSCode
 #
 # usage:
-# 1. Copy presets.txt from support/conan/[operating system] to project root (next to this file) and adjust to own needs
-# 2. python configure.py
+# 1: Copy cpresets.txt containing a list of presets from support/conan/[operating system] to project root (next to this file)
+# 2: Optional: Open cpresets.txt in an editor and adjust to own needs
+# 3: $ python cinstall.py
 #
 
 #import sys
@@ -13,14 +15,16 @@ import subprocess
 
 
 # configuration
-home = Path.home()
+installPrefix = str(Path.home() / ".local")
+
 
 # read presets from presets.txt
-file = open('presets.txt', 'r')
+file = open('cpresets.txt', 'r')
 presets = file.readlines()
 file.close()
 
-# cmake presets
+
+# structure for cmake presets
 cmakePresets = {
     "version": 3,
     "configurePresets": [],
@@ -37,6 +41,7 @@ def addPreset(type, name):
         }
     )
 
+# add a preset with config (Debug/Release) for multi-generators (e.g. Visual Studio)
 def addPresetWithConfig(type, name, config):
     cmakePresets[type].append(
         {
@@ -49,17 +54,14 @@ def addPresetWithConfig(type, name, config):
 # iterate over presets
 for preset in presets:
     p = shlex.split(preset)
-    if not preset.startswith('#') and len(p) == 4:
-        profile = p[0]
-        platform = p[1]
-        config = p[2]
-        generator = p[3]
-        if config == 'Release':
-            name = platform
-        else:
-            name = f"{platform}-{config}"
+    if not preset.startswith('#') and len(p) == 3:
+        profile = p[0] # conan profile
+        config = p[1] # Debug/Release
+        generator = p[2]
+        name = profile
 
         # install dependencies using conan
+        print(f"*** Installing dependencies for {profile} ***")
         subprocess.run(f"conan install -pr:b default -pr:h {profile} -b missing -of build/{name} .", shell=True)
 
         # create cmake presets
@@ -69,12 +71,9 @@ for preset in presets:
                 "description": f"({generator})",
                 "generator": generator,
                 "cacheVariables": {
-                    #"CMAKE_POLICY_DEFAULT_CMP0077": "NEW",
-                    "CMAKE_POLICY_DEFAULT_CMP0091": "NEW",
                     "CMAKE_BUILD_TYPE": config,
-                    "CMAKE_INSTALL_PREFIX": str(home / ".local")
+                    "CMAKE_INSTALL_PREFIX": installPrefix
                 },
-                #"toolchainFile": str(os.getcwd() / f"build/{name}/conan_toolchain.cmake"),
                 "toolchainFile": f"build/{name}/conan_toolchain.cmake",
                 "binaryDir": f"build/{name}"
             }

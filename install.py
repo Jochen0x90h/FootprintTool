@@ -1,8 +1,9 @@
-# Install the project to ~/.local/bin
+# Install the project to ~/.local/bin (CMAKE_INSTALL_PREFIX defined in cinstall.py/vinstall.py)
 #
 # Usage:
-# 1. python configure.py
-# 2. python install.py
+# 1a: When using conan, call $ python cinstall.py
+# 1b: When using vcpkg, call $ python vinstall.py
+# 2: $ python install.py
 #
 
 import subprocess
@@ -12,4 +13,4 @@ import subprocess
 subprocess.run(f"cmake --preset native", shell=True)
 
 # build and install to ~/.local/bin
-subprocess.run(f"cmake --build build/native --config Release --target install", shell=True)
+subprocess.run(f"cmake --build --preset native --target install", shell=True)

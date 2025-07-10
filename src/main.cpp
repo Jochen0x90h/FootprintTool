@@ -191,10 +191,10 @@ struct Footprint {
     // courtyard size is body size plus courtyardAdd
     double2 courtyardAdd;
 
-    // global position
+    // global position, applies to everything
     double2 position;
 
-    // offset of body
+    // offset of body, applies only to body (note that it is 3D)
     double3 offset;
 
     // list of pads (pad arrays)
@@ -358,7 +358,7 @@ void readLine(json &j, Footprint::Line &line) {
     // width
     read(j, "width", line.width);
 
-    // pads or pad arrays
+    // list of points
     if (j.contains("points")) {
         auto jp = j.at("points");
 
@@ -429,7 +429,7 @@ void readFootprint(json &j, std::map<std::string, Footprint> &footprints, Footpr
     read(j, "courtyard", footprint.courtyard);
     readRelaxed(j, "courtyardAdd", footprint.courtyardAdd);
 
-    // global position
+    // global position, applies to everything
     read(j, "position", footprint.position);
 
     // offset, applies only to body
