@@ -22,8 +22,11 @@ constexpr double RECT = 0;
 
 struct Footprint {
     enum class Type {
+        // detect type, SMD if at least one SMD pad is present
         DETECT,
+
         THROUGH_HOLE,
+
         SMD,
     };
 
@@ -164,8 +167,7 @@ struct Footprint {
     // true if this is a template, i.e. no footprint gets generated
     bool template_ = false;
 
-    // name and description of footprint
-    std::string name;
+    // description of footprint
     std::string description;
 
     // through-hole or smd
@@ -211,10 +213,12 @@ struct Footprint {
         if (this->type == Footprint::Type::DETECT) {
             // detect footprint type
             for (auto &pad : this->pads) {
-                if (pad.size.positive() && pad.drillSize.positive())
-                    return Type::THROUGH_HOLE;
+                //if (pad.size.positive() && pad.drillSize.positive())
+                //    return Type::THROUGH_HOLE;
+                if (pad.size.positive() && !pad.drillSize.positive())
+                    return Type::SMD;
             }
-            return Type::SMD;
+            return Type::THROUGH_HOLE;
         }
         return this->type;
     }
@@ -1239,7 +1243,6 @@ int main(int argc, const char **argv) {
         if (footprint.template_)
             continue;;
         std::cout << name << std::endl;
-
         auto dir = path.parent_path();
         if (generateFootprint(dir, name, footprint))
             generateVrml(dir, name, footprint);
