@@ -1,5 +1,8 @@
 #include "clipper2.hpp"
 #include "double3.hpp"
+#include "Footprint.hpp"
+#include "generateStep.hpp"
+#include "generateVrml.hpp"
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <fstream>
@@ -11,7 +14,7 @@ using json = nlohmann::json;
 namespace fs = std::filesystem;
 
 
-
+/*
 // shapes
 constexpr double CIRCLE = 0.5; // oval if width not equal to height
 constexpr double ROUNDRECT = 0.25; // 25% (KiCad default)
@@ -222,7 +225,7 @@ struct Footprint {
         }
         return this->type;
     }
-};
+};*/
 
 void read(json &j, const std::string &key, std::string &value) {
     value = j.value(key, value);
@@ -535,7 +538,7 @@ void writePad(std::ostream &s, std::string_view name, double2 position, double2 
     }
 
     // shape
-    if (shape <= RECT)
+    if (shape <= RECTANGLE)
         s << " rect";
     else if (shape >= CIRCLE)
         if (size.x == size.y)
@@ -1181,6 +1184,7 @@ bool generateFootprint(const fs::path &path, const std::string &name, const Foot
     return haveBody;
 }
 
+/*
 // generate a box as vrml as minimalistic 3D visualization
 void generateVrml(const fs::path &path, const std::string &name, const Footprint &footprint) {
     std::ofstream s((path / (name + ".wrl")).string());
@@ -1225,7 +1229,7 @@ s << R"vrml(]}
 )vrml";
 
     s.close();
-}
+}*/
 
 int main(int argc, const char **argv) {
     if (argc < 2)
@@ -1244,8 +1248,10 @@ int main(int argc, const char **argv) {
             continue;;
         std::cout << name << std::endl;
         auto dir = path.parent_path();
-        if (generateFootprint(dir, name, footprint))
+        if (generateFootprint(dir, name, footprint)) {
             generateVrml(dir, name, footprint);
+            generateStep(dir, name, footprint);
+        }
     }
 
     return 0;

@@ -3,9 +3,15 @@ add_executable(${PROJECT_NAME}
     clipper2.hpp
     double2.hpp
     double3.hpp
+    Footprint.hpp
+    generateStep.cpp
+    generateStep.hpp
+    generateVrml.cpp
+    generateVrml.hpp
 )
 target_link_libraries(${PROJECT_NAME}
     nlohmann_json::nlohmann_json
+    opencascade::opencascade
 )
 if(VCPKG_TARGET_TRIPLET)
     # vcpkg

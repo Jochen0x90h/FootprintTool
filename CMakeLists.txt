@@ -22,5 +22,7 @@ else()
     # conan
     find_package(clipper2 CONFIG)
 endif()
+find_package(opencascade CONFIG)
 
+# source
 add_subdirectory(src)
