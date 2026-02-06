@@ -209,7 +209,11 @@ void readFootprint(json &j, std::map<std::string, Footprint> &footprints, Footpr
     read(j, "description", footprint.description);
 
     // body
-    read(j, "body", footprint.body.size);
+    if (j.contains("body")) {
+        auto body = j.at("body");
+        read(body, "size", footprint.body.size);
+        read(body, "offset", footprint.body.offset);
+    }
 
     // silkscreen
     read(j, "silkscreen", footprint.silkscreen);
