@@ -10,6 +10,9 @@
 #include <set>
 
 
+#define VERSION "0.3.0"
+
+
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 
@@ -30,27 +33,29 @@ void read(json &j, const std::string &key, double &value) {
     value = j.value(key, value);
 }
 
+void read(json &j, const std::string &key, double2 &value) {
+    if (j.contains(key)) {
+        json jv = j.at(key);
+        value.x = jv.at(0).get<double>();
+        value.y = jv.at(1).get<double>();
+    }
+}
+
 void readRelaxed(json &j, const std::string &key, double2 &value) {
     if (j.contains(key)) {
         json jv = j.at(key);
         if (jv.is_number()) {
+            // scalar value, use for both x and y
             value.x = jv.get<double>();
             value.y = value.x;
         } else if (jv.is_array()) {
+            // array of values, use first two values for x and y
             value.x = jv.at(0).get<double>();
             if (jv.size() >= 2)
                 value.y = jv.at(1).get<double>();
             else
                 value.y = value.x;
         }
-    }
-}
-
-void read(json &j, const std::string &key, double2 &value) {
-    if (j.contains(key)) {
-        json jv = j.at(key);
-        value.x = jv.at(0).get<double>();
-        value.y = jv.at(1).get<double>();
     }
 }
 
@@ -63,6 +68,19 @@ void read(json &j, const std::string &key, double3 &value) {
     }
 }
 
+void read2or3(json &j, const std::string &key, double3 &value) {
+    if (j.contains(key)) {
+        json jv = j.at(key);
+
+        // array of values, use first two values for x and y
+        value.x = jv.at(0).get<double>();
+        value.y = jv.at(1).get<double>();
+        if (jv.size() >= 3)
+            value.z = jv.at(2).get<double>();
+        else
+            value.z = 0;
+    }
+}
 
 void readPad(json &j, Footprint::Pad &pad) {
     // type
@@ -109,12 +127,12 @@ void readPad(json &j, Footprint::Pad &pad) {
 
     // layers
     read(j, "back", pad.back);
-    read(j, "jumper", pad.jumper);
+    /*read(j, "jumper", pad.jumper);
     if (pad.jumper) {
         // set defaults for jumper
         pad.mask = false;
         pad.paste = false;
-    }
+    }*/
     read(j, "mask", pad.mask);
     read(j, "paste", pad.paste);
 
@@ -168,6 +186,20 @@ void readLine(json &j, Footprint::Line &line) {
     }
 }
 
+void readRectangle(json &j, Footprint::Rectangle &rectangle) {
+    // layer
+    read(j, "layer", rectangle.layer);
+
+    // width
+    read(j, "width", rectangle.width);
+
+    // p1
+    read(j, "p1", rectangle.p1);
+
+    // p2
+    read(j, "p2", rectangle.p2);
+}
+
 void readCircle(json &j, Footprint::Circle &circle) {
     // layer
     read(j, "layer", circle.layer);
@@ -208,26 +240,53 @@ void readFootprint(json &j, std::map<std::string, Footprint> &footprints, Footpr
     // description
     read(j, "description", footprint.description);
 
-    // body
-    if (j.contains("body")) {
-        auto body = j.at("body");
-        read(body, "size", footprint.body.size);
-        read(body, "offset", footprint.body.offset);
-    }
-
-    // silkscreen
-    read(j, "silkscreen", footprint.silkscreen);
-    readRelaxed(j, "silkscreenAdd", footprint.silkscreenAdd);
-
-    // courtyard
-    read(j, "courtyard", footprint.courtyard);
-    readRelaxed(j, "courtyardAdd", footprint.courtyardAdd);
-
     // global position, applies to everything
     read(j, "position", footprint.position);
 
-    // offset, applies only to body
-    //read(j, "offset", footprint.offset);
+    // body
+    if (j.contains("body")) {
+        auto b = j.at("body");
+        auto &body = footprint.body;
+        read(b, "size", body.size);
+        read2or3(b, "offset", body.offset);
+    }
+
+    // silkscreen
+    if (j.contains("silkscreen")) {
+        auto s = j.at("silkscreen");
+        auto &silkscreen = footprint.silkscreen;//.emplace();
+
+        read(s, "enabled", silkscreen.enabled);
+
+        std::string marker = s.value("marker", std::string());
+        if (marker == "none")
+            silkscreen.marker = Footprint::Silkscreen::Marker::NONE;
+        else if (marker == "bar")
+            silkscreen.marker = Footprint::Silkscreen::Marker::BAR;
+
+        readRelaxed(s, "margin", silkscreen.margin);
+        read(s, "offset", silkscreen.offset);
+    }
+
+    // courtyard
+    if (j.contains("courtyard")) {
+        auto c = j.at("courtyard");
+        auto &courtyard = footprint.courtyard;
+
+        read(c, "enabled", courtyard.enabled);
+        readRelaxed(c, "margin", courtyard.margin);
+        read(c, "offset", courtyard.offset);
+    }
+
+    // fabrication layer
+    if (j.contains("fabrication")) {
+        auto f = j.at("fabrication");
+        auto &fabrication = footprint.fabrication;
+
+        read(f, "enabled", fabrication.enabled);
+        readRelaxed(f, "margin", fabrication.margin);
+        read(f, "offset", fabrication.offset);
+    }
 
     // orientation (position of pin 1 marker)
     std::string orientation = j.value("orientation", std::string());
@@ -238,15 +297,33 @@ void readFootprint(json &j, std::map<std::string, Footprint> &footprints, Footpr
     else if (orientation == "top-right")
         footprint.orientation = Footprint::Orientation::TOP_RIGHT;
 
-        // pads or pad arrays
+    // jumper meta-property sets some defaults
+    bool jumper = false;
+    read(j, "jumper", jumper);
+    if (jumper) {
+        footprint.excludeFromBom = true;
+        footprint.excludeFromPosFiles = true;
+        footprint.allowSolderMaskBridges = true;
+    }
+
+
+    // pads or pad arrays
     if (j.contains("pads")) {
         auto jp = j.at("pads");
 
         int size = jp.size();
         footprint.pads.resize(size);
         for (int i = 0; i < size; ++i) {
+            auto &pad = footprint.pads[i];
+
+            // set defaults for jumper
+            if (jumper) {
+                pad.mask = false;
+                pad.paste = false;
+            }
+
             // read pad or pad array
-            readPad(jp.at(i), footprint.pads[i]);
+            readPad(jp.at(i), pad);
         }
     } else {
         // no pads
@@ -262,6 +339,18 @@ void readFootprint(json &j, std::map<std::string, Footprint> &footprints, Footpr
         for (int i = 0; i < count; ++i) {
             // read line or polyline
             readLine(jl.at(i), footprint.lines[i]);
+        }
+    }
+
+    // rectangles
+    if (j.contains("rectangles")) {
+        auto jr = j.at("rectangles");
+
+        int count = jr.size();
+        footprint.rectangles.resize(count);
+        for (int i = 0; i < count; ++i) {
+            // read rectangle
+            readRectangle(jr.at(i), footprint.rectangles[i]);
         }
     }
 
@@ -295,17 +384,29 @@ void readJson(const fs::path &path, std::map<std::string, Footprint> &footprints
                 true, // allow exceptions
                 true); // ignore comments
 
+            bool versionFound = false;
             for (auto& [name, value] : j.items()) {
                 Footprint footprint;
 
                 try {
-                    readFootprint(value, footprints, footprint);
-                    footprints[name] = footprint;
+                    if (name == "version") {
+                        // get version
+                        versionFound = true;
+                        std::string version = value.get<std::string>();
+                        if (version != VERSION)
+                            std::cerr << "warning: version mismatch, expected " VERSION " but got " << version << std::endl;
+                    } else {
+                        readFootprint(value, footprints, footprint);
+                        footprints[name] = footprint;
+                    }
                 } catch (std::exception &e) {
                     // parsing the json file failed
                     std::cerr << name << ": " << e.what() << std::endl;
                 }
             }
+            if (!versionFound)
+                std::cerr << "warning: version not specified, expected " VERSION << std::endl;
+
         } catch (std::exception &e) {
             // parsing the json file failed
             std::cerr << "json: " << e.what() << std::endl;
@@ -422,6 +523,19 @@ void writeLine(std::ostream &s, double2 position, const Footprint::Line &line) {
     }
 }
 
+// write rectangle
+void writeRectangle(std::ostream &s, double2 position, const Footprint::Rectangle &rectangle) {
+    auto p1 = position + rectangle.p1;
+    auto p2 = position + rectangle.p2;
+    s << "  (fp_rect"
+        " (start " << p1 << ")"
+        " (end " << p2 << ")"
+        " (stroke (width " << rectangle.width << ") (type solid))"
+        " (fill no)"
+        " (layer \"" << rectangle.layer << "\")"
+        ")" << std::endl;
+}
+
 // write circle
 void writeCircle(std::ostream &s, double2 position, const Footprint::Circle &circle) {
     auto p1 = position + circle.center;
@@ -467,13 +581,15 @@ double2 orient(double x, double y, Footprint::Orientation o) {
     }
 }
 
-
+// line widht for silkscreen
 constexpr double silkscreenWidth = 0.15;
 constexpr double silkscreenDistance = 0.1;
 constexpr double padClearance = 0.1;
 
 // add a rectangle pith pin 1 indicator to silscreen clipper
-void addSilkscreenRectangle(clipper2::Clipper64 &clipper, double2 center, double2 size, Footprint::Orientation o) {
+void addSilkscreenRectangle(clipper2::Clipper64 &clipper, double2 center, double2 size, Footprint::Orientation o,
+    Footprint::Silkscreen::Marker marker)
+{
     double w = size.x;
     double h = size.y;
     if (o == Footprint::Orientation::BOTTOM_RIGHT || o == Footprint::Orientation::TOP_LEFT) {
@@ -489,30 +605,69 @@ void addSilkscreenRectangle(clipper2::Clipper64 &clipper, double2 center, double
 
     double d = 4 * silkscreenWidth;
 
-    double x = x1 + (x2 > x1 ? d : -d);
-    double y = y1 + (y2 > y1 ? d : -d);
+    switch (marker) {
+    case Footprint::Silkscreen::Marker::NONE:
+        {
+            clipper2::Paths64 paths;
+            clipper2::Path64 &path = paths.emplace_back();
+            path.push_back(toClipperPoint(center + orient(x1, y1, o)));
+            path.push_back(toClipperPoint(center + orient(x2, y1, o)));
+            path.push_back(toClipperPoint(center + orient(x2, y2, o)));
+            path.push_back(toClipperPoint(center + orient(x1, y2, o)));
+            path.push_back(toClipperPoint(center + orient(x1, y1, o)));
+            clipper.AddOpenSubject(paths);
+        }
+        break;
+    case Footprint::Silkscreen::Marker::DOT:
+        {
+            clipper2::Paths64 paths;
+            clipper2::Path64 &path = paths.emplace_back();
+            double x = x1 + (x2 > x1 ? d : -d);
+            double y = y1 + (y2 > y1 ? d : -d);
+            path.push_back(toClipperPoint(center + orient(x, y1, o)));
+            path.push_back(toClipperPoint(center + orient(x2, y1, o)));
+            path.push_back(toClipperPoint(center + orient(x2, y2, o)));
+            path.push_back(toClipperPoint(center + orient(x1, y2, o)));
+            path.push_back(toClipperPoint(center + orient(x1, y, o)));
+            clipper.AddOpenSubject(paths);
+        }
 
-    {
-        clipper2::Paths64 paths;
-        clipper2::Path64 &path = paths.emplace_back();
-        path.push_back(toClipperPoint(center + orient(x, y1, o)));
-        path.push_back(toClipperPoint(center + orient(x2, y1, o)));
-        path.push_back(toClipperPoint(center + orient(x2, y2, o)));
-        path.push_back(toClipperPoint(center + orient(x1, y2, o)));
-        path.push_back(toClipperPoint(center + orient(x1, y, o)));
-        clipper.AddOpenSubject(paths);
-    }
+        // add pin1 indicator
+        {
+            clipper2::Paths64 paths;
+            clipper2::Path64 &path = paths.emplace_back();
+            double w = silkscreenWidth * 0.5;
+            path.push_back(toClipperPoint(center + orient(x1 - w, y1 - w, o)));
+            path.push_back(toClipperPoint(center + orient(x1 + w, y1 - w, o)));
+            path.push_back(toClipperPoint(center + orient(x1 + w, y1 + w, o)));
+            path.push_back(toClipperPoint(center + orient(x1 - w, y1 + w, o)));
+            clipper.AddSubject(paths);
+        }
+        break;
+    case Footprint::Silkscreen::Marker::BAR:
+        {
+            clipper2::Paths64 paths;
+            clipper2::Path64 &path = paths.emplace_back();
+            double x = x1 + (x2 > x1 ? d : -d);
+            path.push_back(toClipperPoint(center + orient(x, y1, o)));
+            path.push_back(toClipperPoint(center + orient(x2, y1, o)));
+            path.push_back(toClipperPoint(center + orient(x2, y2, o)));
+            path.push_back(toClipperPoint(center + orient(x, y2, o)));
+            clipper.AddOpenSubject(paths);
+        }
 
-    // add pin1 indicator
-    {
-        clipper2::Paths64 paths;
-        clipper2::Path64 &path = paths.emplace_back();
-        double w = silkscreenWidth * 0.5;
-        path.push_back(toClipperPoint(center + orient(x1 - w, y1 - w, o)));
-        path.push_back(toClipperPoint(center + orient(x1 + w, y1 - w, o)));
-        path.push_back(toClipperPoint(center + orient(x1 + w, y1 + w, o)));
-        path.push_back(toClipperPoint(center + orient(x1 - w, y1 + w, o)));
-        clipper.AddSubject(paths);
+        // add pin1 indicator
+        {
+            clipper2::Paths64 paths;
+            clipper2::Path64 &path = paths.emplace_back();
+            double w = silkscreenWidth * 0.5;
+            path.push_back(toClipperPoint(center + orient(x1 - w, y2 - w, o)));
+            path.push_back(toClipperPoint(center + orient(x1 + w, y2 - w, o)));
+            path.push_back(toClipperPoint(center + orient(x1 + w, y1 + w, o)));
+            path.push_back(toClipperPoint(center + orient(x1 - w, y1 + w, o)));
+            clipper.AddSubject(paths);
+        }
+        break;
     }
 }
 
@@ -862,38 +1017,31 @@ void writeGrid(std::ofstream &s, double2 globalPosition, const Footprint::Pad &p
 
 }
 
-bool allowSoldermaskBridges(const Footprint &footprint) {
-    // return true if pads are a jumper
-    for (auto &pad : footprint.pads) {
-        if (pad.jumper)
-            return true;
-    }
-    return false;
-}
-
 bool generateFootprint(const fs::path &path, const std::string &name, const Footprint &footprint) {
+if (name == "Slider") {
+    int x= 0;
+}
     double2 position = footprint.position + footprint.body.offset.xy();
 
-    auto bodySize =  footprint.body.size.xy();
+    double mirror = !footprint.pads.empty() && footprint.pads.front().mirror ? -1 : 1;
+
+    // body
+    auto bodySize = footprint.body.size.xy();
     bool haveBody = bodySize.positive();
 
-    double2 silkscreenSize = bodySize + footprint.silkscreenAdd;
-    bool haveSilkscreen = footprint.silkscreen && silkscreenSize.positive();
+    // silkscreen
+    bool haveSilkscreen = haveBody && footprint.silkscreen.enabled;
 
-    double2 courtyardSize = bodySize + footprint.courtyardAdd;
-    bool haveCourtyard = footprint.courtyard && courtyardSize.positive();
+    // courtyard
+    bool haveCourtyard = haveBody && footprint.courtyard.enabled;
+
+    // fabrication
+    bool haveFabrication = haveBody && footprint.fabrication.enabled;
 
     double2 refPosition = {0, 0};
     double2 valuePosition = {0, 0};
     double maskMargin = 0;
     double pasteMargin = 0;
-
-
-    // apply mirror to size so that pin1 marker is placed at the right position
-    if (!footprint.pads.empty() && footprint.pads.front().mirror) {
-        bodySize.x *= -1;
-        silkscreenSize.x *= -1;
-    }
 
 
     std::ofstream s((path / (name + ".kicad_mod")).string());
@@ -907,7 +1055,11 @@ bool generateFootprint(const fs::path &path, const std::string &name, const Foot
     // attributes
     s << "  (attr";
     s << (footprint.getType() == Footprint::Type::THROUGH_HOLE ? " through_hole" : " smd");
-    if (allowSoldermaskBridges(footprint))
+    if (footprint.excludeFromBom)
+        s << " exclude_from_bom";
+    if (footprint.excludeFromPosFiles)
+        s << " exclude_from_pos_files";
+    if (footprint.allowSolderMaskBridges)
         s << " allow_soldermask_bridges";
     s  << ')' << std::endl;
 
@@ -929,32 +1081,33 @@ bool generateFootprint(const fs::path &path, const std::string &name, const Foot
     clipper2::Clipper64 clipper;
     clipper2::Paths64 clips; // shapes that clip away the silkscreen, e.g. pads
 
-    // body
-    if (haveBody) {
-        //double2 silkscreenSize = bodySize + footprint.margin * 2.0;
+    // silkscreen
+    if (haveSilkscreen) {
+        auto &silkscreen = footprint.silkscreen;
+        double2 silkscreenSize = bodySize + silkscreen.margin * 2.0;
+        silkscreenSize.x *= mirror;
 
-        // apply mirror to size so that pin1 marker is placed at the rigt position
-        //if (!footprint.pads.empty() && footprint.pads.front().mirror) {
-        //    bodySize.x *= -1;
-        //    silkscreenSize.x *= -1;
-       // }
-
-
-        // fabrication layer
-        writeFabRectangle(s, position, bodySize, footprint.orientation);
-
-        // add silkscreen rectangle
-        //if (footprint.silkscreen) {
-            //addSilkscreenRectangle(clipper, position, silkscreenSize);
-        //}
+        addSilkscreenRectangle(clipper, position + silkscreen.offset, silkscreenSize,
+            footprint.orientation, silkscreen.marker);
     }
 
-    if (haveSilkscreen)
-        addSilkscreenRectangle(clipper, position, silkscreenSize, footprint.orientation);
-
     // courtyard
-    if (haveCourtyard)
-        writeRectangle(s, position, courtyardSize, 0.05, "F.CrtYd");
+    if (haveCourtyard) {
+        auto &courtyard = footprint.courtyard;
+        double2 courtyardSize = bodySize + courtyard.margin * 2.0;
+        courtyardSize.x *= mirror;
+
+        writeRectangle(s, position + courtyard.offset, courtyardSize, 0.05, "F.CrtYd");
+    }
+
+    // fabrication layer
+    if (haveFabrication) {
+        auto &fabrication = footprint.fabrication;
+        double2 fabricationSize = bodySize + fabrication.margin * 2.0;
+        fabricationSize.x *= mirror;
+
+        writeFabRectangle(s, position + fabrication.offset, fabricationSize, footprint.orientation);
+    }
 
     // pads
     for (auto &pad : footprint.pads) {
@@ -979,6 +1132,11 @@ bool generateFootprint(const fs::path &path, const std::string &name, const Foot
         writeLine(s, footprint.position, line);
     }
 
+    // rectangles
+    for (auto &rectangle : footprint.rectangles) {
+        writeRectangle(s, footprint.position, rectangle);
+    }
+
     // circles
     for (auto &circle : footprint.circles) {
         writeCircle(s, footprint.position, circle);
@@ -986,9 +1144,8 @@ bool generateFootprint(const fs::path &path, const std::string &name, const Foot
 
     // silkscreen
     if (haveSilkscreen) {
-        clipper.AddClip(clips);
-
         // subtract pads from silkscreen
+        clipper.AddClip(clips);
         clipper2::Paths64 closedPahts;
         clipper2::Paths64 openPaths;
         clipper.Execute(clipper2::ClipType::Difference, clipper2::FillRule::NonZero, closedPahts, openPaths);

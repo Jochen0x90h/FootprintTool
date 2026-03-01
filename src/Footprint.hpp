@@ -2,6 +2,7 @@
 
 //#include "clipper2.hpp"
 #include "double3.hpp"
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -36,21 +37,54 @@ struct Footprint {
 
     // silkscreen
     struct Silkscreen {
-        // siklscreen type
-        enum class Type {
+        bool enabled = true;
+
+        // pin 1 marker
+        enum class Marker {
+            // no pin 1 marker
+            NONE,
+
+            // dot as pin 1 marker
             DOT,
+
+            // bar on side with first and last pin (assuming circular numbering)
             BAR
         };
 
-        Type type;
+        // pin 1 marker
+        Marker marker = Marker::DOT;
 
-        // add to body size
-        double2 add;
+        // margin around body
+        double2 margin;
 
         // silkscreen offset
         double2 offset;
     };
 
+    // courtyard
+    struct Courtyard {
+        bool enabled = true;
+
+        // margin around body
+        double2 margin;
+
+        // courtyard offset
+        double2 offset;
+    };
+
+    // fabrication layer
+    struct Fabrication {
+        bool enabled = true;
+
+        // margin around body
+        double2 margin;
+
+        // fabrication layer offset
+        double2 offset;
+    };
+
+
+    // pin orientation
     enum class Orientation {
         // pin 1 marker is at botton-left position
         BOTTOM_LEFT,
@@ -133,11 +167,8 @@ struct Footprint {
 
         // layers
         bool back = false;
-        bool jumper = false;
         bool mask = true;
         bool paste = true;
-
-        bool vertical = false;
 
         // number of pads
         int count = 1;
@@ -182,6 +213,13 @@ struct Footprint {
         std::vector<double2> points;
     };
 
+    struct Rectangle {
+        std::string layer;
+        double width = 0.1;
+        double2 p1;
+        double2 p2;
+    };
+
     struct Circle {
         std::string layer;
         double width = 0.1;
@@ -203,34 +241,33 @@ struct Footprint {
     // global position, applies to everything
     double2 position;
 
-
     // body (body size is used for silkscreen)
     // migrate .json files: search: "body":\s*\[(.+?)\] replace: "body": {"size": [$1]}
     Body body;
 
-    // additional silkscreen margin (positive makes silkscreen larger)
-    //double2 margin;
+    // silkscreen
+    Silkscreen silkscreen;
 
-    // generate silkscreen
-    bool silkscreen = true;
+    // courtyard
+    Courtyard courtyard;
 
-    // silkscreen size is body size plus silkscreenAdd
-    double2 silkscreenAdd;
+    // fabrication layer
+    Fabrication fabrication;
 
-    // generate courtyard
-    bool courtyard = true;
-
-    // courtyard size is body size plus courtyardAdd
-    double2 courtyardAdd;
-
+    // orientation of footprint (position of pin 1 marker)
     Orientation orientation = Orientation::BOTTOM_LEFT;
+
+    // properties
+    bool excludeFromBom = false;
+    bool excludeFromPosFiles = false;
+    bool allowSolderMaskBridges = false;
 
     // list of pads (pad arrays)
     std::vector<Pad> pads;
 
-
     // shapes
     std::vector<Line> lines;
+    std::vector<Rectangle> rectangles;
     std::vector<Circle> circles;
 
 
